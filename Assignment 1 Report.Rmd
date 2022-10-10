@@ -1,0 +1,892 @@
+---
+title: "Assignment 1 Report"
+author: '190005680'
+date: '10-10-2022'
+output: pdf_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.width = 6, fig.height = 3)
+```
+
+```{r load packages,include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(RColorBrewer)
+library(scales)
+library(sjPlot)
+library(knitr)
+
+setwd("~/MT5763 Software for Data Analysis/Assignment 1")
+```
+
+```{r load data}
+
+# loads in data
+Seoul_Data <- read.csv("Datasets/BikeSeoul.csv")
+Washington_Data <- read.csv("Datasets/BikeWashingtonDC.csv")
+```
+
+## Section 1 : Data Wrangling
+
+### Seoul Data
+
+When the Seoul Bike data was loaded in initially there was many
+different steps I needed to take to make the data as tidy as possible
+for usage in plotting graphs and fitting linear models. I first had to
+check what variables were included in the data and remove any that I did
+not want to use. I therefore looked at the column names of the dataset
+which are shown in the list below:
+
+```{r look at colnames seoul,echo=FALSE}
+colnames(Seoul_Data)
+```
+
+I was not interested in the variables that represented visibility, dew
+point temperature, solar radiation, rainfall and snowfall so I removed
+them. The new column names of the data then became:
+
+```{r remove col seoul,echo=FALSE}
+# specifies unwanted rows in Seoul data
+
+col_to_rm_seoul <- c(
+  "Visibility..10m.",
+  "Dew.point.temperature.C.",
+  "Solar.Radiation..MJ.m2.",
+  "Rainfall.mm.",
+  "Snowfall..cm."
+)
+
+Seoul_Data <- Seoul_Data %>%
+  dplyr::select(-all_of(col_to_rm_seoul))
+
+colnames(Seoul_Data)
+```
+
+I then removed all data for days in which the bike rental service was
+not functioning. The data of whether the bike rental service was running
+during a particular hour was stored in the *Functioning.Day* variable as
+either a Yes or a No. Once all data from non-functioning days was
+removed I then removed the *Functioning.Day* variable. I then wanted to
+rename the columns I had left so they only displayed the naming
+information I desired. There were also a few changes that needed to be
+made to the content of the data which I implemented. I first needed to
+convert the date column into the date variable type. Then I created a
+new variable called *FullDate* which brought together the *Hour*
+variable (which gives the hour that an observation was taken) and *Date*
+variable (which gives the the day on which the observation was taken).
+This new variable has entries that displays the date and time in this
+format:
+
+```{r rm functioning day add FullDate Seoul, echo=FALSE}
+
+Desired_Order <- c("Date", "Hour", "FullDate", "Count", "Season", "Holiday", "Humidity", "Temperature", "WindSpeed")
+
+Seoul_Data <- Seoul_Data %>%
+  filter(Functioning.Day != "No") %>% # Removes days where bike sharing system wasn't functioning
+  dplyr::select(-Functioning.Day) %>% # Removes Functioning Day column
+  rename(
+    Count = "Rented.Bike.Count", Temperature = "Temperature.C.",
+    WindSpeed = "Wind.speed..m.s.", Season = "Seasons", Humidity = "Humidity..."
+  ) %>% # Renames columns
+  mutate(Date = as.Date(Date, format = "%d/%m/%y")) %>% # Converts dates column to correct date format
+  mutate(FullDate = make_datetime(
+    year = year(Date), month = month(Date), day = day(Date),
+    hour = Hour, min = rep(0, length(Hour)),
+    sec = rep(0, length(Hour))
+  )) %>% # makes the date column include the hour of the observation                                                                                      contained in the hour variable
+  dplyr::select(all_of(Desired_Order)) # reorders columns
+
+Seoul_Data$FullDate[2]
+```
+
+The new column names of the data after all these operations were
+performed were then:
+
+```{r colnames Seoul Data,echo=FALSE}
+colnames(Seoul_Data)
+```
+
+I then had to change how some of the variables present themselves. The
+*Holiday* variable had its entries classified as Holiday and No Holiday
+and I changed these to Yes and No respectively for ease of readability
+and I also reordered the *Season* column in chronological order (from
+Spring to Winter).
+
+```{r factor renames Seoul}
+Seoul_Data <- Seoul_Data %>%
+  mutate(Holiday = fct_recode(Holiday, "Yes" = "Holiday", "No" = "No Holiday")) %>% # changes the holiday column to have yes and no as                                                                                               factors instead of holiday and no holiday
+  arrange(match(Season, c("Spring", "Summer", "Autumn", "Winter"))) # orders seasons column in chronological order
+```
+
+### Washington Data
+
+I followed a similar process for tidying the Washington Data. I will not
+re-explain all my steps if they are the same as those above. Displayed
+below are the initial variable names:
+
+```{r look at colnames washington,echo=FALSE}
+# specifies unwanted rows in Washington data
+colnames(Washington_Data)
+```
+
+I was not interested in several variables and so I removed them and I
+also renamed several variables. I also followed a similar process as
+that featured for the Seoul Data to make a new variable called
+*FullDate* which has the same format as that in Seoul Data. The new
+variable names of the data after these transformations are shown below:
+
+```{r col to rm washington,echo=FALSE}
+
+col_to_rm_washington <- c(
+  "instant", "yr", "mnth",
+  "weekday", "workingday", "weathersit",
+  "atemp", "casual", "registered"
+)
+
+Washington_Data <- Washington_Data %>%
+  dplyr::select(-all_of(col_to_rm_washington)) %>%
+  rename(
+    Date = "dteday", Season = "season", Hour = "hr",
+    WindSpeed = "windspeed", Count = "cnt",
+    Holiday = "holiday", Temperature = "temp", Humidity = "hum"
+  ) %>%
+  mutate(Date = as.Date(Date)) %>%
+  mutate(FullDate = make_datetime(
+    year = year(Date),
+    month = month(Date),
+    day = day(Date),
+    hour = Hour,
+    min = rep(0, length(Hour)),
+    sec = rep(0, length(Hour))
+  )) %>%
+  dplyr::select(all_of(Desired_Order)) # reorders column
+
+
+colnames(Washington_Data)
+```
+
+There were a few issues in how some of the variables present themselves.
+I wanted all variables in the Washington Data to present information in
+the same format as they do in the Seoul Data. I, therefore, converted
+the temperature variable from being the normalized temperature in a
+certain hour to the actual temperature in °C that hour, converted the
+wind speed variable from being normalized to being the actual wind speed
+and converted this speed to m/s, I converted the Season variable from
+displaying 1-4 for the seasons from Spring to Winter to displaying the
+names of the seasons and I converted the holiday variable from
+displaying 1 if there was a holiday and 0 if there was not on a specific
+day to saying Yes or No respectively.
+
+```{r data tidying washington,include=FALSE}
+
+# specifies maximum and minimum temperatures as well as maximum windspeed and conversion from km/h to m/s
+tmax <- 39
+tmin <- -8
+windmax <- 67
+kmhr_to_ms <- 1 / 3.6
+
+
+Washington_Data <- Washington_Data %>%
+  mutate(Humidity = 100 * Humidity) %>%
+  mutate(Temperature = Temperature * (tmax - tmin) + tmin) %>%
+  mutate(WindSpeed = windmax * WindSpeed * kmhr_to_ms) %>%
+  mutate(Season = as.factor(Season)) %>%
+  mutate(Holiday = as.factor(Holiday)) %>%
+  mutate(Season = factor(Season,
+    levels = as.character(1:4),
+    labels = c("Winter", "Spring", "Summer", "Autumn")
+  )) %>%
+  mutate(Holiday = fct_recode(Holiday, "No" = "0", "Yes" = "1")) %>%
+  arrange(match(Season, c("Spring", "Summer", "Autumn", "Winter"))) # orders seasons column in chronological order
+```
+
+## Section 2 : Data Visualisation
+
+Since both the Washington and Seoul bike rental datasets have the same
+format the data visualisation process was the same for both datasets. I
+wrote a function which produces the same graphs for each dataset that
+seek to give some insight into the questions proposed for this
+assignment.
+
+```{r data vis function,include=FALSE}
+# Creates List of plots that provide insight into proposed questions for input dataset
+data_vis <- function(dataset) {
+
+  # Gets name of dataset and changes _ to a blank space so it can be used in graph titles
+  dataset_name_for_title <- gsub("_Data", " ", deparse(substitute(dataset)))
+
+  # gives colours for each season in charts
+  colours_of_seasons <- hue_pal()(4)
+
+  names(colours_of_seasons) <- c("Spring", "Summer", "Autumn", "Winter")
+
+  # Creates a dataset which gives the average Count for each season
+  avg_cnt_season <- dataset %>%
+    group_by(Season) %>%
+    summarise(Count = mean(Count))
+
+  # Creates a dataset which gives the average Count for holidays and non-holidays
+  avg_cnt_holiday <- dataset %>%
+    group_by(Holiday) %>%
+    summarise(Count = mean(Count))
+
+  # Creates a dataset which gives the average Count for each hour of the day
+  avg_cnt_hour <- dataset %>%
+    group_by(Holiday, Season, Hour) %>%
+    summarise(Count = mean(Count)) %>%
+    mutate(Season = factor(Season, levels = c("Spring", "Summer", "Autumn", "Winter")))
+
+  # makes hour a factor variable
+  Data_For_Plotting <- dataset %>%
+    mutate(Hour = as.factor(Hour))
+
+  # Creates plot of date against temperature with a gam smooth overlayed
+  date_v_temp <- ggplot(dataset, aes(x = FullDate, y = Temperature, col = Season)) +
+    geom_point(size = 0.8) +
+    xlab("Date (To Nearest Hour)") +
+    ylab("Temperature (°C)") +
+    geom_smooth(inherit.aes = FALSE, aes(x = FullDate, y = Temperature), method = "gam", formula = y ~ s(x, bs = "cs")) +
+    ggtitle(paste(dataset_name_for_title, "\n Date vs Temperature", sep = " ")) + # orders seasons in legend
+    scale_color_manual(values = colours_of_seasons)
+
+  # creates a boxplot of the count for each season
+  season_v_count_box <- ggplot(dataset, aes(x = Season, y = Count, fill = Season)) +
+    geom_boxplot(show.legend = FALSE) +
+    xlab("Season") +
+    ylab("Number of Bikes Rented") +
+    scale_x_discrete(limits = c("Spring", "Summer", "Autumn", "Winter")) +
+    scale_fill_manual(values = colours_of_seasons) +
+    ggtitle(paste(dataset_name_for_title, "\n Season v Number of Bikes Rented", sep = " "))
+
+  # Creates a bar plot of the average count for each season
+  season_v_count_bar <- ggplot(avg_cnt_season, aes(x = Season, y = Count, fill = Season)) +
+    geom_bar(stat = "Identity", show.legend = FALSE, color = "black") +
+    xlab("Season") +
+    ylab("Average Number of Bikes Rented") +
+    scale_x_discrete(limits = c("Spring", "Summer", "Autumn", "Winter")) +
+    scale_fill_manual(values = colours_of_seasons) +
+    ggtitle(paste(dataset_name_for_title, "\n Season v Average Number of Bikes Rented", sep = " "))
+
+
+  # creates baxplot of count for holidays and non holidays
+  hol_v_count_box <- ggplot(dataset, aes(x = Holiday, y = Count)) +
+    geom_boxplot() +
+    xlab("Holiday?") +
+    ylab("Number of Bikes Rented") +
+    scale_x_discrete(limits = c("Yes", "No")) +
+    ggtitle(paste(dataset_name_for_title, "\n Holiday? v Number of Bikes Rented", sep = " "))
+
+  # creates barplot of average count for holidays and non holidays
+  hol_v_count_bar <- ggplot(avg_cnt_holiday, aes(x = Holiday, y = Count)) +
+    geom_bar(stat = "Identity") +
+    xlab("Holiday?") +
+    ylab("Average Number of Bikes Rented") +
+    scale_x_discrete(limits = c("Yes", "No")) +
+    ggtitle(paste(dataset_name_for_title, "\n Holiday? v Average Number of Bikes Rented", sep = " "))
+
+  # creates 4 barplots of average count for each hour of the day broken up into seasons
+  hour_v_count_bar_facet_season <- ggplot(avg_cnt_hour, aes(x = Hour, y = Count, fill = Season)) +
+    geom_bar(stat = "Identity") +
+    xlab("Hour Of the Day") +
+    ylab("Average Number of Bikes Rented") +
+    ggtitle(paste(dataset_name_for_title, "\n Hour of Day v Average Number of Bikes Rented\n Seperated By Season", sep = " ")) +
+    facet_wrap(~Season) +
+    scale_fill_manual(values = colours_of_seasons)
+
+  # creates 2 barplots of average count for each hour of the day broken up by whether its a holiday or not
+  hour_v_count_bar_facet_holiday <- ggplot(avg_cnt_hour, aes(x = Hour, y = Count)) +
+    geom_bar(stat = "Identity") +
+    xlab("Hour Of the Day") +
+    ylab("Average Number of Bikes Rented") +
+    ggtitle(paste(dataset_name_for_title, "\n Hour of Day v Average Number of Bikes Rented\n Seperated by Holiday", sep = " ")) +
+    facet_wrap(~Holiday)
+
+  # creates plot of humidity vs count with gam smooth overlayed
+  humidity_v_count <- ggplot(dataset, aes(x = Humidity, y = Count)) +
+    geom_point() +
+    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), fill = "Red") +
+    xlab("Humidity (%)") +
+    ylab("Number of Bikes Rented") +
+    ggtitle(paste(dataset_name_for_title, "\n Humidity v Number of Bikes Rented", sep = " "))
+
+  # creates plot of temperature vs count with gam smooth overlayed
+  temp_v_count <- ggplot(dataset, aes(x = Temperature, y = Count)) +
+    geom_point() +
+    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), fill = "Red") +
+    xlab("Temperature (°C)") +
+    ylab("Number of Bikes Rented") +
+    ggtitle(paste(dataset_name_for_title, "\n Temperature v Number of Bikes Rented", sep = " "))
+
+  # creates plot of wind speed vs count with gam smooth overlayed
+  wind_v_count <- ggplot(dataset, aes(x = WindSpeed, y = Count)) +
+    geom_point() +
+    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), fill = "Red") +
+    xlab("Wind Speed (m/s)") +
+    ylab("Number of Bikes Rented") +
+    ggtitle(paste(dataset_name_for_title, "\n Wind Speed v Number of Bikes Rented", sep = " "))
+
+  # outputs list of all plots
+  list(
+    "Date_v_Temp" = date_v_temp,
+    "Barchart_Season_v_Count" = season_v_count_bar,
+    "Boxplot_Season_v_Count" = season_v_count_box,
+    "Barchart_Holiday_v_Count" = hol_v_count_bar,
+    "Boxplot_Holiday_v_Count" = hol_v_count_box,
+    "Barchart_Hour_v_Count_facet_Season" = hour_v_count_bar_facet_season,
+    "Boxplot_Hour_v_Count_facet_Holiday" = hour_v_count_bar_facet_holiday,
+    "Humidity_v_Count" = humidity_v_count,
+    "Temperature_v_Count" = temp_v_count,
+    "Wind_Speed_v_Count" = wind_v_count
+  )
+}
+
+# runs this data visualization function on the seoul and washington data
+
+Seoul_Data_Plots <- data_vis(Seoul_Data)
+
+Washington_Data_Plots <- data_vis(Washington_Data)
+```
+
+### How does air temperature vary over the course of a year?
+
+In order to answer this question I made a plot of the air temperature
+measured in degrees Celsius (°C) against the date measured to the
+nearest hour (as it appears in the *FullDate* variable). The Seoul data
+includes data for only one year (2020) whereas the Washington data
+includes data for two years (2011 and 2012). All observations from the
+same season share the same colour in order to make this distinction
+easier to identify.
+
+A GAM has been fitted to both models with temperature as the response
+and the fitted responses of this model have been overlayed in the graphs
+of air temperature vs date shown by the blue line in Figures 2.1 and
+2.2. From the two graphs below (particularly by looking at the overlayed
+fit of the GAM) we can see that the air temperature has a near
+sinusoidal relationship with the date. For Seoul it seems
+that the peak of these curves is in the middle of summer (that being
+around the middle of July) and it has its trough in winter (near the end
+of January). This sinusoidal relationship is sightly different for
+Washington with the peak occurring at the beginning of Summer (around
+the beginning of August) and the trough occurring at the beginning of
+Winter (around the beginning of January).
+
+```{r seoul date v temp}
+Seoul_Data_Plots$Date_v_Temp
+```
+
+*Figure 2.1 Scatter Plot of Date vs Temperature in Seoul with a GAM
+geometric smooth fitted to the observations overlayed*
+
+```{r washington date v temp}
+Washington_Data_Plots$Date_v_Temp
+```
+
+*Figure 2.2 Scatter Plot of Date vs Temperature in Washington with a GAM
+geometric smooth fitted to the observations overlayed*
+
+### Do seasons affect the average number of rented bikes?
+
+The four graphs shown below in Figures 2.3, 2.4, 2.5 and 2.6 show the
+relationship between the season and the number of bikes rented. Looking at the results the season definetly does affect the average number of bikes rented. The two
+cities seem to show different relationships between the seasons and the
+number of bikes rented.
+
+The Seoul data seems to show that people in Seoul tend to rent the
+highest average number of bikes in summer, 2^nd^ most in Autumn, 3^rd^
+most in Spring and the lowest average number of bikes being rented in
+Winter (see figure 2.4). The range in number of bikes rented per hour is also
+significantly smaller in Winter showing there isn't a lot of variation
+in the number of bikes rented in Winter. (see figure 2.4).
+
+The Washington data seems to shown that people in Washington tend to
+rent the highest average number of bikes in Summer, 2^nd^ most in
+Spring, 3^rd^ most in Autumn by a small margin and the lowest average
+number of bikes being rented in Winter (see figure 2.6). The range in the number of bikes
+rented for each hour of the season is very similiar between the seasons
+in Washington (see figure 2.6) which could possibly mean that bikes are generally rented
+more consitently throughout the year in Washington than in Seoul.
+
+     \
+\
+
+```{r seoul season v count box}
+Seoul_Data_Plots$Boxplot_Season_v_Count
+```
+
+*Figure 2.3 Box Plot of Season vs Number of Bikes Rented in Seoul*
+
+```{r seoul season v count bar}
+Seoul_Data_Plots$Barchart_Season_v_Count
+```
+
+*Figure 2.4 Bar Chart of Season vs Average Number of Bikes Rented in
+Seoul*\
+\
+
+```{r washington season v count box}
+Washington_Data_Plots$Boxplot_Season_v_Count
+```
+
+*Figure 2.5 Box Plot of Season vs Number of Bikes Rented in Washington*
+
+```{r washington season v count bar}
+Washington_Data_Plots$Barchart_Season_v_Count
+```
+
+*Figure 2.6 Bar Chart of Season vs Average Number of Bikes Rented in
+Washington*
+
+\
+
+### Do holidays increase or decrease the demand for rented bikes?
+
+It can be seen from figures 2.7-2.10 below that while the difference between
+the average number of bikes rented whether it is a holiday or not is
+different between the cities the overall result is the same for both,
+that being that a higher average number of bikes are rented on days that
+are not holidays than days that are holidays.
+
+The spread of values, shown in Figure 2.7 and 2.9, is higher for No observations in both cities but
+this is probably just because there is larger number of No observations,
+with there being 16879 No observations to 500 Yes observations for
+Washington and 8057 No observations to 408 Yes observations in the Seoul
+data, not because of any particularly special variation in the data.
+
+```{r no of nos,include=FALSE}
+Seoul_Data %>%
+  group_by(Holiday) %>%
+  summarize(Number_of_Observations = n())
+
+Washington_Data %>%
+  group_by(Holiday) %>%
+  summarize(Number_of_Observations = n())
+```
+
+```{r seoul holiday vs count box}
+Seoul_Data_Plots$Boxplot_Holiday_v_Count
+```
+
+*Figure 2.7 Box Plot of Whether it was a Holiday or Not vs Number of
+Bikes Rented in Washington*
+
+```{r seoul holiday vs count bar}
+Seoul_Data_Plots$Barchart_Holiday_v_Count
+```
+
+*Figure 2.8 Bar Chart of Whether it was a Holiday or Not vs Average
+Number of Bikes Rented in Seoul*    
+
+```{r washington holiday vs count box}
+Washington_Data_Plots$Boxplot_Holiday_v_Count
+```
+
+*Figure 2.9 Box Plot of Whether it was a Holiday or Not vs Number of
+Bikes Rented in Washington*    
+
+```{r washington holiday vs count bar}
+Washington_Data_Plots$Barchart_Holiday_v_Count
+```
+
+*Figure 2.10 Bar Chart of Whether it was a Holiday or Not vs Average
+Number of Bikes Rented in Washington*\
+ \
+ 
+
+### How does the time of day affect the demand for rented bikes?
+
+It can be seen from the bar charts below (Figures 2.11 & 2.13) of hour of the day against the
+average number of bikes rented that hour that both Seoul and Washington
+show similar results. Figures 2.11 & 2.13 show that the distribution of number of bikes rented is 
+roughly the same over each season but that whether or not there is a holiday changes the peak times in which bikes are rented. On days where there is not a holiday  there are two major spikes
+of people renting bikes during the day, those being at 8am and the second
+being between 5pm and 6pm and the
+lowest average number of bikes rented occurs at 4am. Whereas on days where there is a holiday there is no peak at 8am although other peaks and troughs stays the same as for non- holiday days however the peaks  are more smoothly reached e.g not big spikes.
+
+```{r seoul hour vs count bar facet season,fig.height=3}
+Seoul_Data_Plots$Barchart_Hour_v_Count_facet_Season
+```
+
+*Figure 2.11 Bar Chart of Hour of the Day vs Average Number of Bikes
+Rented in Seoul Seperated by Season*
+
+```{r seoul hour vs count bar facet holiday,fig.height=3}
+Seoul_Data_Plots$Boxplot_Hour_v_Count_facet_Holiday
+```
+
+*Figure 2.12 Bar Charts of Hour of the Day vs Average Number of Bikes
+Rented in Seoul Separated By Whether There Was A Holiday Or Not*
+
+
+
+```{r washington hour vs count bar facet season,fig.height=3}
+Washington_Data_Plots$Barchart_Hour_v_Count_facet_Season
+```
+
+
+*Figure 2.13 Bar Charts of Hour of the Day vs Average Number of Bikes
+Rented in Washington Separated By Season*
+
+```{r washington hour vs count bar facet holiday,fig.height=3}
+Washington_Data_Plots$Boxplot_Hour_v_Count_facet_Holiday
+```
+
+*Figure 2.14 Bar Charts of Hour of the Day vs Average Number of Bikes
+Rented in Washington Separated By Whether There Was A Holiday Or Not*
+
+
+### Is there an association between bike demand and the three meteorological variables (air temperature, wind speed and humidity)?
+
+#### Air Temperature
+
+To answer this question I will first start with temperature. From the
+two graphs below (Figures 2.13 and 2.14) it can be seen that there is
+definitely an association between bike demand and temperature with more
+people renting bikes in higher temperatures in both cities. This is
+shown clearly by the GAM smooth of the points.
+
+```{r temp v count seoul}
+Seoul_Data_Plots$Temperature_v_Count
+```
+
+*Figure 2.15 Scatter Plot of Temperature vs Number of Bikes Rented in Seoul with a GAM
+geometric smooth fitted to the observations overlayed*
+
+
+
+
+```{r temp v count washington}
+Washington_Data_Plots$Temperature_v_Count
+```
+
+*Figure 2.16 Scatter Plot of Temperature vs Number of Bikes Rented in Washington with a GAM
+geometric smooth fitted to the observations overlayed*
+
+
+
+#### Humidity
+
+Next looking at humidity it seems like there is definitely an
+association between humidity and the number of bikes rented, it is just
+different in each city. The relationship between humidity and number of
+bikes rented is slightly more complex than that of temperature with the
+number of bikes rented seeming to peak at around 25% humidity in
+Washington (see figure 2.18) and decrease after that whereas in Seoul (see figure 2.17) the number of bikes
+rented stays mostly the same for humidities between 0 and 75% but has a
+significant drop between 75 and 100% humidity.
+
+```{r hum v count seoul,fig.height=3}
+Seoul_Data_Plots$Humidity_v_Count
+```
+
+
+*Figure 2.17 Scatter Plot of Humidity vs Number of Bikes Rented in Seoul with a GAM
+geometric smooth fitted to the observations overlayed*
+
+
+
+```{r hum v count washington,fig.height=3}
+Washington_Data_Plots$Humidity_v_Count
+```
+
+*Figure 2.18 Scatter Plot of Humidity vs Number of Bikes Rented in Washington with a GAM
+geometric smooth fitted to the observations overlayed*
+
+
+
+#### Wind Speed
+
+Finally, looking at wind speed it seems that the evidence of a relationship between number of bikes rented and wind speed is significantly weaker than that for temperature and humidity. This can be seen in the GAM smooths the confidence intervals of which indicate that the line could be near flat. It seems that there may be more evidence in Seoul as there does seem to be a slight increase in number of bikes rented as wind speed increases from 0 m/s to 3 m/s as can be seen in Figure 2.17 however in Washington the evidence for a relationship between wind speed and number of bikes rented is very weak as can be seen from Figure 2.18.   
+
+  
+```{r windspeed v count seoul,fig.height=3}
+Seoul_Data_Plots$Wind_Speed_v_Count
+```
+
+*Figure 2.19 Scatter Plot of Wind Speed vs Number of Bikes Rented in Seoul with a GAM
+geometric smooth fitted to the observations overlayed*
+
+
+
+```{r windspeed v count washington,fig.height=3}
+Washington_Data_Plots$Wind_Speed_v_Count
+```
+
+*Figure 2.20 Scatter Plot of Wind Speed vs Number of Bikes Rented in Seoul with a GAM
+geometric smooth fitted to the observations overlayed*
+
+## Section 3 : Model Fitting 
+
+Similar to the data visualization section, I created a function which fit a linear model of log count as outcome, and season, air temperature, humidity and wind speed as predictors and then produced some summary graphs and statistics and then used this function on both datasets.
+
+
+
+```{r model fitting function}
+
+Lin_Model_Fitting <- function(data) {
+
+  # gives colours so colour scheme of graphs is consistent
+  colours_for_graphs <- hue_pal()(4)
+
+  # gives datasets name
+  dataset_name_for_title <- gsub("_Data", " ", deparse(substitute(data)))
+
+  # adds a column to the data which gives the log of the count data
+  data <- data %>%
+    mutate(logCount = log(Count))
+
+  # creates a linear model for log count with explanatory variables
+  model <- lm(logCount ~ Season + Temperature + WindSpeed + Humidity, data)
+
+  #gives summary of model
+  summary_model <- summary(model)
+  
+  # extracts the coefficients of the model
+  coeffs <- coef(model)
+
+  # gives CI for coefficients of model
+  coeff_CI <- confint(model, level = 0.97)
+
+  # gives table of coefficients and 97% CIs
+  table_of_model <- data.frame(
+    Name_Of_Coefficient = names(coeffs),
+    Coefficient = coeffs,
+    Confidence_Interval_97_Percent = paste(round(coeff_CI[, 2], 3), round(coeff_CI[, 1], 3), sep = " - ")
+  )
+  
+  rownames(table_of_model) <- c()
+  
+  colnames(table_of_model) <- c("Name Of Coefficients","Coefficient","97% Confidence Interval")
+  
+  #plots coefficients and their 95% CIs 
+  coeff_plot <- plot_model(model)
+
+  # gives the fitted values of the original data
+  fitted_of_original <- predict(model, data, interval = "confidence")
+
+  # gives the residuals of the original data
+  residuals_of_original <- resid(model)
+
+  # finds the standard deviation of these residuals
+  residual_sd <- sqrt(sum(residuals_of_original^2) / (length(residuals_of_original) - 2))
+
+
+  # adds 2 columns which give the fitted values of the model, the residuals of the model for the linear model,and the standardized residuals of the model
+  data <- data %>%
+    mutate(Fitted = fitted_of_original[, 1]) %>%
+    mutate(Residuals_Log = residuals_of_original) %>%
+    mutate(Standardised_Residuals = residuals_of_original / residual_sd)
+
+  # gives plot of a the estimated density of the residuals vs a normal(0,s^2) distribution density
+  plot_normal_vs_resids <- ggplot(data, aes(x = Residuals_Log)) +
+    geom_histogram(aes(y = ..density..), alpha = .4,bins=30) + # plots histogram of observed values
+    geom_area(
+      stat = "function", fun = dnorm, args = list(mean = 0, sd = sd(residuals_of_original)),
+      fill = colours_for_graphs[2], alpha = .5, col = colours_for_graphs[2]
+    ) + # plots normal density function with same variance as residuals
+    geom_density(alpha = .4, fill = colours_for_graphs[1], col = colours_for_graphs[1]) + # plots estimated density of observed values
+    ylab("Density") +
+    ggtitle(paste(dataset_name_for_title, "\n Estimated Density of Residuals vs Normal Density"))
+
+  # makes residuals vs fitted plot
+  resid_vs_fitted_plot <- ggplot(data, aes(x = Fitted, y = Residuals_Log)) +
+    xlab("Fitted Value") +
+    ylab("Residual") +
+    ggtitle(paste(dataset_name_for_title, "\n Fitted vs Residuals")) +
+    geom_point() +
+    geom_smooth(method = "gam") +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red")
+
+  # makes residuals vs normal qq plot
+  qqplot <- ggplot(data, aes(sample = Standardised_Residuals)) +
+    stat_qq(distribution = qnorm, dparams = list(mean = 0, sd = 1)) + # makes qqplot of normal vs observed standardized residuals
+    stat_qq_line(distribution = qnorm, dparams = list(mean = 0, sd = 1)) +
+    xlab("Theoretical Quantile") +
+    ylab("Standardized Residuals")
+
+
+  # gives values for desired prediction in data frame format
+  values_for_eval <- data.frame(
+    Season = "Winter",
+    Temperature = 0,
+    WindSpeed = 0.5,
+    Humidity = 20
+  )
+
+  # gives prediction on the log scale
+  prediction_log_count <- predict.lm(model, values_for_eval, interval = c("prediction"), level = 0.9)
+
+  # gives prediction on the count scale
+  prediction <- exp(prediction_log_count)
+
+
+  list(
+    "Model" = model,
+    "Summary of Model"=summary_model,
+    "Table_of_Coefficients_of_Model" = table_of_model,
+    "Coefficient_Plot" = coeff_plot,
+    "Desired_Prediction" = prediction,
+    "Normal_Resid_Plot" = plot_normal_vs_resids,
+    "Residual_Vs_Fitted" = resid_vs_fitted_plot,
+    "QQ_plot" = qqplot
+  )
+}
+
+Lin_Model_Seoul <- Lin_Model_Fitting(Seoul_Data)
+
+Lin_Model_Washington <- Lin_Model_Fitting(Washington_Data)
+
+```
+
+The summaries of the models fitted using the 'summary' function for each cities model are given below. 
+
+### Summary of Models
+
+#### Seoul Data
+
+ 
+```{r summary model seoul}
+
+Lin_Model_Seoul$'Summary of Model'
+
+```
+
+*Output 3.1 Summary Function used on model fit to Seoul Data*
+
+
+The p values of the t-test of the coefficients model seen in the summary above for the Seoul data tell us that all of the coefficients of the model are significant in explaining the variation in the number of bikes rented. The values of the coefficients tell us a few things. The first thing to note is that all of these are on the log scale however this means that the coefficients of the model still represent a change in the same direction for every unit of their respective variable e.g an increase in temperature would lead to an increase in the log count which leads to an increase in the actual count of the number of bikes rented. Quickly running through the coefficients we can see that this model tells us that in Seoul: the least number of bikes are rented on average in Winter, second least in Summer and third least in Winter with Autumn having the  most bikes rented, an increase in temperature leads to an increase in bikes rented, an increase in wind speed leads to an increase in bikes rented and an increase in humidity leads to a decrease in bikes rented. 
+
+
+These results do not seem to match with the understanding of the data seen in the data visualization section. This is because the assumptions made in the model do not seem to hold. One assumption that does not hold is that all of the meteorological variables are modeled as having a linear relationship with the response which we have seen in the data visualization section (in Figures 2.15,2.17,2.19) is not the case. Another is that the residuals of the model are normally distributed. This does not seem to be the case as we can see from Figures 3.1 and 3.2 that the residuals do not form a straight line on a normal qq plot which implies that they are not normally distributed and also looking of the plot of the estimated density overlayed with the normal density they do not seem to be even remotely similar.  A result that also indicates that the model may not fit the data very well is that the model states that there are less bikes rented in Summer than in Autumn. This does not seem to be true as the average number of bikes rented in summer is higher than in autumn as can be seen in Figures 2.3 and 2.4.
+  
+    
+
+```{r normal qq seoul}
+
+Lin_Model_Seoul$QQ_plot
+
+```
+
+*Figure 3.1 Quantile - Quantile Plot of the Theoretical Distribution of Normally Distributed Variables vs the Observed Standardised Residuals of the Model for Seoul *
+
+
+```{r normal and estimated seoul}
+
+Lin_Model_Seoul$Normal_Resid_Plot
+
+```
+
+*Figure 3.2 Histogram of the Observed Residuals of the Model for Washington with the Estimated Density of These Residuals Overlayed With a Normal Distribution Centered at 0 with the Same Standard Deviation Also Overlayed*
+
+
+
+#### Washington Data 
+
+
+```{r summary model washington}
+
+Lin_Model_Washington$'Summary of Model'
+
+```
+  
+*Output 3.2 Summary Function used on model fit to Washington Data*
+  
+The p values of the t-test of the coefficients model seen in the summary above for the Washington data again tell us that all of the coefficients of the model are significant in explaining the variation in the number of bikes rented. The values of the coefficients tell us a few things. Again it is important to note that the response is on the log scale. Quickly running through the coefficients we can see that this model tells us that in Washington: the most number of bikes are rented in Autumn, 2nd most in Winter, 3rd most in Spring andf the least in Summer, an increase in temperature leads to an increase in bikes rented, an increase in wind speed leads to an increase in bikes rented and an increase in humidity leads to a decrease in bikes rented. 
+
+These results do not seem to match with the understanding of the data seen in the data visualization section. This is again because the assumptions made in the model do not seem to hold. Similarly to Seoul the assumption that the meteorological variables have a linear relationship with the number of bikes rented does not seem to hold as shown by Figures 2.16, 2.18 and 2.20. Another is that the residuals of the model are normally distributed. This does not seem to be the case as we can see from Figures 3.3 and 3.4 that the residuals do not form a straight line on a normal qq plot which implies that they are not normally distributed and also looking of the plot of the estimated density overlayed with the normal density they do not seem to be even remotely similar.  A result that also indicates that the model may not fit the data very well is that the model states that there are less bikes rented in Summer than in Winter. This does not seem to be true as the average number of bikes rented in summer is higher than in autumn as can be seen in Figures 2.5 and 2.6.
+
+```{r normal qq washington}
+
+Lin_Model_Washington$QQ_plot
+
+```
+
+*Figure 3.3 Quantile - Quantile Plot of the Theoretical Distribution of Normally Distributed Variables vs the Observed Standardised Residuals of the Model for Washington *
+
+
+```{r normal and estimated washington}
+
+Lin_Model_Washington$Normal_Resid_Plot
+
+```
+
+*Figure 3.4 Histogram of the Observed Residuals of the Model for Washington with the Estimated Density of These Residuals Overlayed With a Normal Distribution Centered at 0 with the Same Standard Deviation Also Overlayed*
+
+
+
+### Regression Coefficients
+
+#### Seoul Data 
+
+A table of the regression coefficients of the Seoul data's fitted linear model along with 97% confidence intervals for these coefficients is given below. A plot of these coefficients and their 95% CIs is also given below. 
+
+```{r seoul data fitted coefficients}
+
+kable(Lin_Model_Seoul$Table_of_Coefficients_of_Model)
+
+```
+
+
+```{r seoul fitted coefficients plot}
+
+Lin_Model_Seoul$Coefficient_Plot
+
+```
+
+*Figure 3.5 Plot of Regression Coefficients along with their associated 95% Confidence Interval for Seoul Data's Fitted Linear Model*
+
+#### Washington Data
+
+A table of the regression coefficients of the Seoul data's fitted linear model along with 97% confidence intervals for these coefficients is given below. A plot of these coefficients and their 95% CIs is also given below.
+
+```{r washington data fitted coefficients}
+
+kable(Lin_Model_Washington$Table_of_Coefficients_of_Model)
+
+```
+
+
+```{r washington fitted coefficients plot}
+
+Lin_Model_Washington$Coefficient_Plot
+
+```
+
+*Figure 3.6 Plot of Regression Coefficients along with their associated 95% Confidence Interval for Washington Data's Fitted Linear Model*
+
+The confidence intervals for these regression coefficients in both models do seem trustworthy to me. The sample size is large enough that I trust that the confidence intervals for the regression coefficients for both models however I do not think the coefficients give a model that accurately describes the variations in count of bikes rented for each city (as I have discussed in the previous section)
+
+
+
+
+### Predictions 
+
+The expected number of rented bikes in winter when the air temperature is freezing (0◦C), in the presence of light wind (0.5m/s) and a humidity of 20% is given for both cities along with a 90% prediction interval for both cities is given below:
+
+```{r prediction}
+
+prediction_dataframe <- data.frame(
+  City= c("Seoul","Washington"),
+  Predicted_Value = c(Lin_Model_Seoul$Desired_Prediction[1], Lin_Model_Washington$Desired_Prediction[1]),
+  Prediction_90_Lwr = c(Lin_Model_Seoul$Desired_Prediction[2],Lin_Model_Washington$Desired_Prediction[2]),
+  Prediction_90_Upr = c(Lin_Model_Seoul$Desired_Prediction[3],Lin_Model_Washington$Desired_Prediction[3])
+)
+
+colnames(prediction_dataframe) <- c("City","Predicted Value","90% Prediction Interval Lower","90% Prediction Interval Upper")
+
+kable(prediction_dataframe)
+
+```
+
+
+Both of these prediction intervals are very wide so I do not find them to be very trustworthy or useful sources of information. The intervals are probably this wide due to the poor fit of the models to their respective datasets. 
+
+
+
+
+
+
